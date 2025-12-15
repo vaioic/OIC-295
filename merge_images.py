@@ -5,9 +5,13 @@ import numpy as np
 from matplotlib import pyplot as plt
 from pybioimageutils import visualize
 
-image_A_path = "\\\\pn.vai.org\\projects_primary\\moore\\vari-core-generated-data\\PBC-Aperio Images\\259270.svs"
+# image_A_path = "\\\\pn.vai.org\\projects_primary\\moore\\vari-core-generated-data\\PBC-Aperio Images\\259270.svs"
 
-image_B_path = "\\\\pn.vai.org\\projects_primary\\moore\\vari-core-generated-data\\PBC-Aperio Images\\261082.svs"
+# image_B_path = "\\\\pn.vai.org\\projects_primary\\moore\\vari-core-generated-data\\PBC-Aperio Images\\261082.svs"
+
+image_A_path = "\\\\pn.vai.org\\projects_primary\\moore\\vari-core-generated-data\\PBC-Aperio Images\\261081.svs"
+
+image_B_path = "\\\\pn.vai.org\\projects_primary\\moore\\vari-core-generated-data\\PBC-Aperio Images\\259267.svs"
 
 ii = 2 #Image downsample index
 
@@ -26,6 +30,8 @@ image_B = np.array(image_B.convert('RGB'))
 # Try adjusting the contrast
 image_A = skimage.exposure.equalize_adapthist(image_A)
 image_A = (image_A * 255).astype(np.uint8)
+# image_A[:, :, 0] = image_A[:, :, 0] * 1.2
+# image_A[:, :, 2] = image_A[:, :, 2] * 1.2
 
 print(f"Image A dtype: {image_A.dtype}")
 print(f"Image A shape: {image_A.shape}")
