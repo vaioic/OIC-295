@@ -8,11 +8,9 @@ def print_properties(image_path):
 
     print(f"Slide: {fn}")
     print(f"Level Count: {slide.level_count}")
-    print(f"Dimensions (Level 0): {slide.dimensions}")
+    print(f"Dimensions (Level 0): {slide.dimensions}") # (width, height)
     print(f"Dimensions (Levels): {slide.level_dimensions}")
-    print(f"Level Downsamples: {slide.level_downsamples}")
-
-    
+    print(f"Level Downsamples: {slide.level_downsamples}")   
 
     slide.close()
 
@@ -23,3 +21,7 @@ image_B_path = "\\\\pn.vai.org\\projects_primary\\moore\\vari-core-generated-dat
 print_properties(image_A_path)
 print_properties(image_B_path)
 
+# Can you read the whole tile into memory?
+slide_A = openslide.OpenSlide(image_A_path)
+image_A = slide_A.read_region((0,0), 0, slide_A.dimensions)
+slide_A.close()
