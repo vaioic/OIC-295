@@ -11,6 +11,9 @@ def print_properties(image_path):
     print(f"Dimensions (Level 0): {slide.dimensions}") # (width, height)
     print(f"Dimensions (Levels): {slide.level_dimensions}")
     print(f"Level Downsamples: {slide.level_downsamples}")   
+    print(f"Properties: {slide.properties}")
+    print(f"x-scale: {slide.properties[openslide.PROPERTY_NAME_MPP_X]}")
+    print(f"y-scale: {slide.properties[openslide.PROPERTY_NAME_MPP_Y]}")
 
     slide.close()
 
