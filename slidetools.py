@@ -6,6 +6,63 @@ from pybioimageutils import visualize
 from tqdm import tqdm
 import cv2
 
+def register_region_2(slide, reference_slide, topleft=(0,0), region_size=(512,512), level=0):
+
+    #TOPLEFT = (x0, y0)
+    #REGION_SIZE = (WIDTH, HEIGHT)
+
+    # The moving image should be larger
+    moving = slide.read_region(topleft, level, (region_size[0] * 2, region_size[1] * 2))
+    moving_gray = np.array(moving.convert('L'))
+    moving_rgb = np.array(moving.convert('RGB'))
+
+    # The reference image should 
+    reference = reference_slide.read_region(topleft, level, (region_size[0] * 2, region_size[1] * 2))
+    reference_gray = np.array(reference.convert('L'))
+    reference_rgb = np.array(reference.convert('RGB'))
+
+    shift, _, _= skimage.registration.phase_cross_correlation(reference_gray, moving_gray)
+    
+    tform = skimage.transform.SimilarityTransform(translation=(-shift[1], -shift[0]))
+
+    aligned = np.zeros(moving_rgb.shape)    
+    for c in range(3):
+        #aligned[:, :, c] = skimage.transform.warp(moving_rgb[:, :, c], tform)
+        aligned[:, :, c] = np.roll(moving_rgb[:, :, c], shift)
+    
+    aligned = (aligned * 255).astype(np.uint8)
+
+    merged = visualize.composite(reference_rgb, aligned, 
+normalize_images=False)
+    
+    return merged[:region_size[1], :region_size[0], :]
+
+def correct_image_tiled_2(slide, reference_slide, output_level=0, tile_size=128):
+
+    # Calculate number of tiles
+    width, height = reference_slide.level_dimensions[output_level]    
+    downsample_factor = reference_slide.level_downsamples[output_level]
+    
+    num_cols = int(np.ceil(width / tile_size))
+    num_rows = int(np.ceil(height / tile_size))
+
+    for row in tqdm(range(num_rows)):
+        for col in range(num_cols):
+            
+            x0 = int(col * tile_size * downsample_factor)
+            y0 = int(row * tile_size * downsample_factor)
+
+            tile_width = min(tile_size, width - col * tile_size)
+            tile_height = min(tile_size, height - row * tile_size)
+
+            merged_tile = register_region_2(slide, reference_slide, topleft=(x0,y0), region_size=(tile_size, tile_size), level=output_level)
+
+            plt.imshow(merged_tile[:tile_width, :tile_height])
+            plt.show()
+
+            yield merged_tile[:tile_width, :tile_height]
+
+
 def register_region(slide, reference_slide, topleft=(0,0), region_size=(100,100), level=2):
 
     moving = slide.read_region(topleft, level, region_size)
