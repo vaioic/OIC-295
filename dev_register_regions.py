@@ -51,6 +51,9 @@ if width_B < target_width:
 print(imageA.shape)
 print(imageB.shape)
 
+imageA = imageA[5000:10000, 5000:10000]
+imageB = imageB[5000:10000, 5000:10000]
+
 shift, _, _ = skimage.registration.phase_cross_correlation(imageA, imageB)
 
 tform = skimage.transform.SimilarityTransform(translation=(-shift[1], -shift[0]))
@@ -72,4 +75,4 @@ reg_im[..., 0] = corrected
 reg_im[..., 1] = imageA
 reg_im[..., 2] = imageA
 
-imwrite('./export/registered_phasexcorr_large.tif', reg_im)
+imwrite('./export/registered_phasexcorr_region.tif', reg_im)
