@@ -5,9 +5,82 @@ Contains functions used to work with and register slide images
 import openslide
 from  matplotlib import pyplot as plt
 import numpy as np
-from matplotlib.widgets import RectangleSelector
+from matplotlib.widgets import RectangleSelector]
+from tqdm import tqdm
+
+def calculate_shift(moving_slide, ref_slide, ds_level=2):
+    '''
+    Calculates the pixel shift of a slide image. Returns the shift in the original image resolution.
+    
+    :param moving_slide: Description
+    :param ref_slide: Description
+    :param ds_level: Description
+    '''
+
+    moving = moving_slide.read_region((0,0), ds_level, ref_slide.level_dimensions[ds_level])
+    moving = np.array(moving.convert('L'))
+
+
+    ref = ref_slide.read_region((0,0), ds_level, ref_slide.level_dimensions[ds_level])
+    ref = np.array(ref.convert('L'))
+    
+    shift, _, _= skimage.registration.phase_cross_correlation(ref, moving)
+
+    ds_factor = ref_slide.level_downsamples[ds_level]
+
+    # Return the shift, corrected to the original resolution and as integers as required by read_region.
+    shift = (int(shift[0] * ds_factor), int(shift[1] * ds_factor))
+
+    return shift
+
+def register_tiled_image(moving_slide, ref_slide, shift, ds_level=2, tile_size=256):
+
+     # Calculate number of tiles
+    width, height = ref_slide.level_dimensions[ds_level]    
+    downsample_factor = ref_slide.level_downsamples[ds_level]
+    
+    num_cols = int(np.ceil(width / tile_size))
+    num_rows = int(np.ceil(height / tile_size))
+
+    for row in tqdm(range(num_rows)):
+        for col in range(num_cols):
+            
+            x0 = int(col * tile_size * downsample_factor)
+            y0 = int(row * tile_size * downsample_factor)
+
+            tile_width = min(tile_size, width - col * tile_size)
+            tile_height = min(tile_size, height - row * tile_size)
+                
+            #Read the reference slide
+            ref = ref_slide.read_region(
+                    (x0, y0),
+                    ds_level,
+                    size=(tile_width, tile_height)
+            )
+            ref = np.array(ref.convert('RGB'))
+           
+            # Read the corrected image
+            moving = moving_slide.read_region(
+                (x0 - shift[0], y0 - shift[1]),
+                ds_level,
+                size=(tile_width, tile_height)
+            )
+            moving = np.array(moving.convert('RGB'))
+            
+            output = visualize.composite(ref, moving, normalize_images=False)
+            # output = (output * 255).astype(np.uint8)
+
+            yield output.astype(np.uint8)
+
 
 def get_region(slide, ds_level=2):
+    '''
+    Returns an image region interactively
+
+    
+    :param slide: Description
+    :param ds_level: Description
+    '''
 
     # Initialize variables to hold the final selection
     topleft = (0,0)
@@ -34,7 +107,7 @@ def get_region(slide, ds_level=2):
         minspanx=5, minspany=5,
         spancoords='pixels',
         interactive=True)
-    
+    plt.title('Drag to select a region. Close the window when done.')
     plt.show()
 
     # Return coordinates scaled by the downsample level
