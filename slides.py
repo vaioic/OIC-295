@@ -16,6 +16,27 @@ def print_slide_properties(slide):
     for prop_name, prop_value in slide.properties.items():
         print(f"{prop_name}: {prop_value}")
 
+def get_registered_regions(moving_slide, ref_slide, shift, region_size, topleft=(0,0), ds_level=2):
+
+    # region_size = (width, height)
+    downsample_factor = ref_slide.level_downsamples[ds_level]
+
+    #Read the reference slide
+    ref = ref_slide.read_region(topleft, ds_level, size=region_size)
+    ref = np.array(ref.convert('RGB'))
+
+    # Read the corrected image
+    moving = moving_slide.read_region(
+        (topleft[0] - shift[1], topleft[1] - shift[0]),
+        ds_level,
+        size=region_size
+    )
+    moving = np.array(moving.convert('RGB'))
+
+    return ref, moving
+
+
+
 def calculate_shift(moving_slide, ref_slide, ds_level=2):
     '''
     Calculates the pixel shift of a slide image. Returns the shift in the original image resolution.
@@ -54,9 +75,6 @@ def register_tiled_image(moving_slide, ref_slide, shift, ds_level=2, tile_size=2
     num_rows = int(np.ceil(height / tile_size))
 
     print(f"Num Rows: {num_rows}, Num Cols: {num_cols}")
-
-    shift_corrected = (int(np.round((shift[0] + 1) * downsample_factor)),
-                    int(np.round((shift[1] + 1) * downsample_factor)))
 
     for row in tqdm(range(num_rows)):
         for col in range(num_cols):
