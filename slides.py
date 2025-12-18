@@ -9,6 +9,49 @@ from matplotlib.widgets import RectangleSelector
 from tqdm import tqdm
 import skimage
 from pybioimageutils import visualize
+import cv2
+
+def filter_image_by_pink(image):
+
+    image_hsv = skimage.color.rgb2hsv(image)
+
+    # target_color_rgb = np.zeros((1, 3), np.uint8)
+    # target_color_rgb[:,0] = 120
+    # target_color_rgb[:,1] = 33
+    # target_color_rgb[:,2] = 67
+    # print(target_color_rgb.shape)
+
+    # target_color_hsv = skimage.color.rgb2hsv(target_color_rgb)
+    # print(target_color_hsv)
+
+    # Define the lower and upper bounds for the color (example for red)
+    # Hue values for red are split between the high and low ends of the spectrum
+    lower_red_hue = 0.85
+    upper_red_hue = 0.95  # A small range near 0
+
+    # Also, define saturation and value thresholds to avoid grey/white/black pixels
+    min_saturation = 0.4
+    min_value = 0.3
+
+    # For red specifically, we combine two masks:
+    hue_mask_1 = image_hsv[:, :, 0] >= lower_red_hue
+    hue_mask_2 = image_hsv[:, :, 0] <= upper_red_hue
+    hue_mask = hue_mask_1 & hue_mask_2 # Combine the two red ranges
+
+    # Create saturation and value masks
+    saturation_mask = image_hsv[:, :, 1] >= min_saturation
+    value_mask = image_hsv[:, :, 2] >= min_value
+
+    # Combine all masks
+    color_mask = hue_mask & saturation_mask & value_mask
+
+    color_mask = skimage.morphology.binary_dilation(color_mask, skimage.morphology.disk(4))
+
+    # filtered_image = image.copy()
+    # filtered_image[~color_mask] = np.mean(image)
+    color_mask = (color_mask * 255).astype(np.uint8)
+
+    return color_mask
 
 def print_slide_properties(slide):
     print("All properties:")
@@ -161,3 +204,65 @@ def get_region(slide, ds_level=2):
     
     return tuple(topleft.astype(int)), tuple(region_size.astype(int))
 
+def compute_descriptors(moving_gray, ref_gray, landmarks, window_size=31):
+
+    # 1. Convert manual landmarks (x, y) to OpenCV KeyPoint objects
+    # The 'size' parameter defines the diameter of the neighborhood considered.
+    kp = []
+    for x, y in landmarks:
+        # Parameters: x, y, size, angle, response, octave, class_id
+        # Size can be adjusted based on the scale of features you expect
+        keypoint = cv2.KeyPoint(x, y, window_size) 
+        kp.append(keypoint)
+
+    # 2. Initialize a descriptor extractor (e.g., SIFT or ORB)
+    # SIFT is a common choice for its robustness
+    try:
+        descriptor_extractor = cv2.SIFT_create()
+    except AttributeError:
+        # Handle cases where SIFT might be in xfeatures2d (older OpenCV versions)
+        print("SIFT not found directly, trying xfeatures2d.SIFT_create()")
+        descriptor_extractor = cv2.xfeatures2d.SIFT_create()
+
+    # 3. Compute descriptors for the created keypoints
+    # The compute method returns the same keypoints (potentially refined) and the descriptors
+    kpM, desM = descriptor_extractor.compute(moving_gray, kp)
+    kpR, desR = descriptor_extractor.compute(ref_gray, kp)
+
+    if desM is None:
+        print("No descriptors were computed.")
+        return kp, None
+
+    return kpM, desM, kpR, desR
+
+
+def compute_descriptors_skimage(moving_gray, ref_gray, landmarks, window_size=31):
+
+    # 1. Convert manual landmarks (x, y) to OpenCV KeyPoint objects
+    # The 'size' parameter defines the diameter of the neighborhood considered.
+    kp = []
+    for x, y in landmarks:
+        # Parameters: x, y, size, angle, response, octave, class_id
+        # Size can be adjusted based on the scale of features you expect
+        keypoint = cv2.KeyPoint(x, y, window_size) 
+        kp.append(keypoint)
+
+    # 2. Initialize a descriptor extractor (e.g., SIFT or ORB)
+    # SIFT is a common choice for its robustness
+    try:
+        descriptor_extractor = cv2.SIFT_create()
+    except AttributeError:
+        # Handle cases where SIFT might be in xfeatures2d (older OpenCV versions)
+        print("SIFT not found directly, trying xfeatures2d.SIFT_create()")
+        descriptor_extractor = cv2.xfeatures2d.SIFT_create()
+
+    # 3. Compute descriptors for the created keypoints
+    # The compute method returns the same keypoints (potentially refined) and the descriptors
+    kpM, desM = descriptor_extractor.compute(moving_gray, kp)
+    kpR, desR = descriptor_extractor.compute(ref_gray, kp)
+
+    if desM is None:
+        print("No descriptors were computed.")
+        return kp, None
+
+    return kpM, desM, kpR, desR
