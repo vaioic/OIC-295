@@ -5,8 +5,16 @@ Contains functions used to work with and register slide images
 import openslide
 from  matplotlib import pyplot as plt
 import numpy as np
-from matplotlib.widgets import RectangleSelector]
+from matplotlib.widgets import RectangleSelector
 from tqdm import tqdm
+import skimage
+from pybioimageutils import visualize
+
+def print_slide_properties(slide):
+    print("All properties:")
+
+    for prop_name, prop_value in slide.properties.items():
+        print(f"{prop_name}: {prop_value}")
 
 def calculate_shift(moving_slide, ref_slide, ds_level=2):
     '''
@@ -26,10 +34,13 @@ def calculate_shift(moving_slide, ref_slide, ds_level=2):
     
     shift, _, _= skimage.registration.phase_cross_correlation(ref, moving)
 
+    print(shift)
+
     ds_factor = ref_slide.level_downsamples[ds_level]
 
     # Return the shift, corrected to the original resolution and as integers as required by read_region.
     shift = (int(shift[0] * ds_factor), int(shift[1] * ds_factor))
+    print(f"Corrected {shift}")
 
     return shift
 
@@ -41,6 +52,11 @@ def register_tiled_image(moving_slide, ref_slide, shift, ds_level=2, tile_size=2
     
     num_cols = int(np.ceil(width / tile_size))
     num_rows = int(np.ceil(height / tile_size))
+
+    print(f"Num Rows: {num_rows}, Num Cols: {num_cols}")
+
+    shift_corrected = (int(np.round((shift[0] + 1) * downsample_factor)),
+                    int(np.round((shift[1] + 1) * downsample_factor)))
 
     for row in tqdm(range(num_rows)):
         for col in range(num_cols):
@@ -61,7 +77,7 @@ def register_tiled_image(moving_slide, ref_slide, shift, ds_level=2, tile_size=2
            
             # Read the corrected image
             moving = moving_slide.read_region(
-                (x0 - shift[0], y0 - shift[1]),
+                (x0 - shift[1], y0 - shift[0]),
                 ds_level,
                 size=(tile_width, tile_height)
             )
@@ -69,8 +85,11 @@ def register_tiled_image(moving_slide, ref_slide, shift, ds_level=2, tile_size=2
             
             output = visualize.composite(ref, moving, normalize_images=False)
             # output = (output * 255).astype(np.uint8)
+            output = output.astype(np.uint8)
 
-            yield output.astype(np.uint8)
+            # print((np.max(output), np.min(output)))
+
+            yield output
 
 
 def get_region(slide, ds_level=2):
