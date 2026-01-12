@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 from scipy.interpolate import RegularGridInterpolator
+import core_functions
 
 target = skimage.io.imread('./images/259270_0_crop.tif')
 target_gray = skimage.color.rgb2gray(target)
@@ -12,6 +13,29 @@ target_gray = skimage.util.img_as_ubyte(target_gray)
 moving = skimage.io.imread('./images/261082_0_crop.tif')
 moving_gray = skimage.color.rgb2gray(moving)
 moving_gray = skimage.util.img_as_ubyte(moving_gray)
+
+# Condition the images to have the same shape
+height_A, width_A = target_gray.shape
+height_B, width_B = moving_gray.shape
+
+target_height = max(height_A, height_B)
+target_width = max(width_A, width_B)
+
+if height_A < target_height:
+    diff = target_height - height_A
+    target = np.pad(target, ((0, diff), (0, 0)), 'constant')
+
+if width_A < target_width:
+    diff = target_width - width_A
+    target = np.pad(target, ((0, 0), (0, diff)), 'constant')
+
+if height_B < target_height:
+    diff = target_height - height_B
+    moving = np.pad(moving, ((0, diff), (0, 0)), 'constant')
+
+if width_B < target_width:
+    diff = target_width - width_B
+    moving = np.pad(moving, ((0, 0), (0, diff)), 'constant')
 
 # First do a coarse alignment
 shift, _, _ = skimage.registration.phase_cross_correlation(target_gray, moving_gray)
@@ -37,7 +61,7 @@ num_lm_grid = [100, 100]
 
 H, W = moving.shape[:2]
 
-# To avoid errors, the first edge has to at least fit the landmark region - not this might cause errors along the edge but we can live with that for now
+# To avoid errors, the first edge has to at least fit the landmark region - note this might cause errors along the edge but we can live with that for now
 lm_grid_spacing_x = np.round(W / num_lm_grid[0])
 lm_grid_spacing_y = np.round(H / num_lm_grid[1])
 
@@ -59,21 +83,27 @@ xg, yg = np.meshgrid(xx, yy)
 dX = np.zeros(xg.shape, dtype=np.float32)
 dY = np.zeros(yg.shape, dtype=np.float32)
 
+ft_target = np.fft.fft2(target_gray)
+
 for iX in tqdm(range(len(lm_grid_edges_x) - 1), position=0):
     for iY in tqdm(range(len(lm_grid_edges_y) - 1), position=1, leave=False):
 
         template = corrected[lm_grid_edges_y[iY]:(lm_grid_edges_y[iY] + landmark_size[1]), lm_grid_edges_x[iX]:(lm_grid_edges_x[iX] + landmark_size[0])]
 
-        res = cv2.matchTemplate(target_gray, template, cv2.TM_CCOEFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+        shift = core_functions.fast_template_match(template, ft_target, target_istransformed=True)
+        dX[iX, iY] = shift[0]
+        dY[iX, iY] = shift[1]
 
-        dX[iX, iY] = max_loc[0] - lm_grid_edges_x[iX]
+        # res = cv2.matchTemplate(target_gray, template, cv2.TM_CCOEFF_NORMED)
+        # min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+
+        # dX[iX, iY] = max_loc[0] - lm_grid_edges_x[iX]
         
         # TODO: Limit the search region - but cap for now
         if dX[iX, iY] > 30:
             dX[iX, iY] = 0
 
-        dY[iX, iY] = max_loc[1] - lm_grid_edges_y[iY]
+        # dY[iX, iY] = max_loc[1] - lm_grid_edges_y[iY]
 
         # TODO: Limit the search region - but cap for now
         if dY[iX, iY] > 30:
@@ -92,9 +122,6 @@ for iX in tqdm(range(len(lm_grid_edges_x) - 1), position=0):
         # plt.show()
 
         # print(f"(dx,dy)={dX[iX,iY], dY[iX,iY]}")
-
-
-
 
 # Interpolate the displacement field to the whole image
 interp_dX = RegularGridInterpolator((xx, yy), dX, bounds_error=False, fill_value=None)
@@ -123,7 +150,6 @@ reg_final[..., 2] = target_gray
 
 plt.imshow(reg_final)
 plt.show()
-
 
 # # Draw the result on a color version of the target image
 # cv2.rectangle(target, top_left, bottom_right, (0, 255, 0), 2)
