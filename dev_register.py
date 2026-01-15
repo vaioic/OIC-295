@@ -1,75 +1,104 @@
-# Try registering smaller slices
+import core_functions
 import skimage
-import numpy as np
-from skimage.color import rgb2gray
 from matplotlib import pyplot as plt
-from tifffile import imwrite
+import scipy
+import numpy as np
+import cv2
 
-imageA = rgb2gray(skimage.io.imread('./export/259270_1.tif'))
-imageB = rgb2gray(skimage.io.imread('./export/261082_1.tif'))
+target = skimage.io.imread("../data/259270_0_crop.tif")
+moving = skimage.io.imread("../data/261082_0_crop.tif")
 
-# Condition the images to have the same shape
-height_A, width_A = imageA.shape
-height_B, width_B = imageB.shape
+# Match image sizes
+target_cropped, moving_cropped = core_functions.match_image_size(target, moving)
 
-target_height = max(height_A, height_B)
-target_width = max(width_A, width_B)
+# Perform a coarse alignment
+shift = core_functions.get_shift(moving, target)
 
-if height_A < target_height:
-    diff = target_height - height_A
-    imageA = np.pad(imageA, ((0, diff), (0, 0)), 'constant')
+corrected = core_functions.translate_image(moving, shift)
+crop_moving, crop_target = core_functions.match_translated_images(corrected, target, shift)
 
-if width_A < target_width:
-    diff = target_width - width_A
-    imageA = np.pad(imageA, ((0, 0), (0, diff)), 'constant')
+# merged = core_functions.merge_images(crop_target, crop_moving)
+# plt.imshow(merged)
+# plt.show()
 
-if height_B < target_height:
-    diff = target_height - height_B
-    imageB = np.pad(imageB, ((0, diff), (0, 0)), 'constant')
+# # For development, crop the resulting image further for speed of testing
+# crop_moving = crop_moving[1500:3000, 1500:3000, :]
+# crop_target = crop_target[1500:3000, 1500:3000, :]
 
-if width_B < target_width:
-    diff = target_width - width_B
-    imageB = np.pad(imageB, ((0, 0), (0, diff)), 'constant')
+# merge = core_functions.merge_images(crop_moving, crop_target)
+# plt.imshow(merge)
+# plt.show()
 
-# min_height = min(height_A, height_B)
-# min_width = min(width_A, width_B)
+# Perform fine-tuned alignments
+dX, dY, dX_c, dY_c = core_functions.get_fine_shift(crop_moving, crop_target, 10, 300)
 
-# print(f"Min dimensions: {(min_height, min_width)}")
+# Might want to apply some kind of smoothing filter
 
-# if height_A > min_height:
-#     imageA = imageA[:min_height, :]
+# Interpolate the displacements to the whole image
+interp_dX = scipy.interpolate.RegularGridInterpolator((dX_c, dY_c), dX.T, bounds_error=False, fill_value=0)
+interp_dY = scipy.interpolate.RegularGridInterpolator((dX_c, dY_c), dY.T, bounds_error=False, fill_value=0)
 
-# if width_A > min_width:
-#     imageA = imageA[:, :min_width]
+# Generate image coordinates
+iX = np.arange(0, crop_moving.shape[1])
+iY = np.arange(0, crop_moving.shape[0])
 
-# if height_B > min_height:
-#     imageB = imageB[:min_height]
+iXX, iYY = np.meshgrid(iX, iY, indexing='xy')
 
-# if width_B > min_width:
-#     imageB = imageB[:, :min_width]
+# Upsample the displacement field
+dX_upsampled = interp_dX((iXX, iYY))
+dY_upsampled = interp_dY((iXX, iYY))
 
-print(imageA.shape)
-print(imageB.shape)
+# plt.subplot(2, 2, 1)
+# plt.imshow(dX)
+# plt.colorbar()
+# plt.subplot(2, 2, 2)
+# plt.imshow(dX_upsampled)
+# plt.colorbar()
 
-shift, _, _ = skimage.registration.phase_cross_correlation(imageA, imageB)
+# plt.subplot(2, 2, 3)
+# plt.imshow(dY)
+# plt.colorbar()
+# plt.subplot(2, 2, 4)
+# plt.imshow(dY_upsampled)
+# plt.colorbar()
+# plt.show()
 
-tform = skimage.transform.SimilarityTransform(translation=(-shift[1], -shift[0]))
+corrected_final = core_functions.remap_image(crop_moving, iXX, iYY, dX_upsampled, dY_upsampled)
 
-corrected = skimage.transform.warp(imageB, tform)
+merged = core_functions.merge_images(crop_target, skimage.util.img_as_float(corrected_final))
+merged_original = core_functions.merge_images(crop_target, crop_moving)
 
-# # Try optical flow registration
-# # v, u = skimage.registration.optical_flow_ilk(imageB, imageA)
+plt.subplot(1, 2, 1)
+plt.imshow(merged_original)
+plt.subplot(1, 2, 2)
+plt.imshow(merged)
+plt.show()
 
-# # nr, nc = imageA.shape
+# Not currently working
+# # Get the target coordinates
+# target_XX = iXX - (dX_upsampled)
+# target_YY = iYY - (dY_upsampled)
 
-# # row_coords, col_coords = np.meshgrid(np.arange(nr), np.arange(nc), indexing='ij')
+# coords_to_sample = np.array([target_XX, target_YY])
 
-# # image1_warp = skimage.transform.warp(imageB, np.array([row_coords + v, col_coords + u]), mode='edge')
+# print(coords_to_sample.shape)
 
-# build an RGB image with the registered sequence
-reg_im = np.zeros((imageA.shape[0], imageA.shape[1], 3))
-reg_im[..., 0] = corrected
-reg_im[..., 1] = imageA
-reg_im[..., 2] = imageA
+# final_corrected_image = np.zeros(crop_moving.shape, dtype=crop_moving.dtype)
+# for iC in range(moving.shape[2]):
+#      final_corrected_image[:, :, iC] = scipy.ndimage.map_coordinates(crop_moving[:, :, 0], coords_to_sample, 
+#                                           order=3, mode='constant')
 
-imwrite('./export/registered_phasexcorr_large.tif', reg_im)
+# merged_original = core_functions.merge_images(crop_target, crop_moving)
+# merged_corrected = core_functions.merge_images(crop_target, final_corrected_image)
+
+# dX_c_grid, dY_c_grid = np.meshgrid(dX_c, dY_c)
+
+# plt.subplot(1, 2, 1)
+# plt.imshow(merged_original)
+# plt.subplot(1, 2, 2)
+# plt.imshow(merged_corrected)
+# #plt.quiver(dX_c, dY_c, dX, dY)
+# plt.quiver(iXX[::50, ::50], iYY[::50, ::50], dX_upsampled[::50, ::50], dY_upsampled[::50, ::50])
+# # plt.plot(target_XX[::10, ::10], target_YY[::10, ::10], 'rx')
+# # plt.plot(iXX[::10, ::10], iYY[::10, ::10], 'bo')
+# plt.show()
