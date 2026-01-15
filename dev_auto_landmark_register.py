@@ -4,7 +4,6 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 from scipy.interpolate import RegularGridInterpolator
-import core_functions
 
 target = skimage.io.imread('./images/259270_0_crop.tif')
 target_gray = skimage.color.rgb2gray(target)
@@ -23,39 +22,42 @@ target_width = max(width_A, width_B)
 
 if height_A < target_height:
     diff = target_height - height_A
-    target = np.pad(target, ((0, diff), (0, 0)), 'constant')
+    target_gray = np.pad(target_gray, ((0, diff), (0, 0)), 'constant')
 
 if width_A < target_width:
     diff = target_width - width_A
-    target = np.pad(target, ((0, 0), (0, diff)), 'constant')
+    target_gray = np.pad(target_gray, ((0, 0), (0, diff)), 'constant')
 
 if height_B < target_height:
     diff = target_height - height_B
-    moving = np.pad(moving, ((0, diff), (0, 0)), 'constant')
+    moving_gray = np.pad(moving_gray, ((0, diff), (0, 0)), 'constant')
 
 if width_B < target_width:
     diff = target_width - width_B
-    moving = np.pad(moving, ((0, 0), (0, diff)), 'constant')
+    moving_gray = np.pad(moving_gray, ((0, 0), (0, diff)), 'constant')
+
 
 # First do a coarse alignment
 shift, _, _ = skimage.registration.phase_cross_correlation(target_gray, moving_gray)
 tform = skimage.transform.SimilarityTransform(translation=(-shift[1], -shift[0]))
 
+print(shift)
+
 corrected = skimage.transform.warp(moving_gray, tform)
 corrected = skimage.util.img_as_ubyte(corrected)
 
-reg_im = np.zeros((target.shape[0], target.shape[1], 3), dtype=np.uint8)
-reg_im[..., 0] = target_gray
-reg_im[..., 1] = corrected
-reg_im[..., 2] = target_gray
+# reg_im = np.zeros((target_gray.shape[0], target_gray.shape[1], 3), dtype=np.uint8)
+# reg_im[..., 0] = target_gray
+# reg_im[..., 1] = corrected
+# reg_im[..., 2] = target_gray
 
-plt.imshow(reg_im)
-plt.show()
+# plt.imshow(reg_im)
+# plt.show()
 
 landmark_size = [400, 400]  # Height, Width
 
 # Generate a list of landmark grid locations - there might need to be overlap
-num_lm_grid = [40, 40]
+num_lm_grid = [100, 100]
 
 H, W = moving.shape[:2]
 
@@ -70,6 +72,7 @@ lm_grid_edges_y = np.uint(np.arange(landmark_size[0]/2, H, lm_grid_spacing_y))
 # lm_grid_edges_y = np.arange(0, H, landmark_size[0])
 
 # For each landmark, crop the coarsely-aligned image and register it
+curr_iter = 20
 
 # Calculate the landmark grid centers
 xx = lm_grid_edges_x[:-1] + landmark_size[1]/2
@@ -80,27 +83,21 @@ xg, yg = np.meshgrid(xx, yy)
 dX = np.zeros(xg.shape, dtype=np.float32)
 dY = np.zeros(yg.shape, dtype=np.float32)
 
-#ft_target = np.fft.fft2(target_gray)
-
 for iX in tqdm(range(len(lm_grid_edges_x) - 1), position=0):
     for iY in tqdm(range(len(lm_grid_edges_y) - 1), position=1, leave=False):
 
         template = corrected[lm_grid_edges_y[iY]:(lm_grid_edges_y[iY] + landmark_size[1]), lm_grid_edges_x[iX]:(lm_grid_edges_x[iX] + landmark_size[0])]
 
-        shift = core_functions.faster_template_match(template, target_gray)
-        dX[iX, iY] = shift[0]
-        dY[iX, iY] = shift[1]
+        res = cv2.matchTemplate(target_gray, template, cv2.TM_CCOEFF_NORMED)
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
 
-        # res = cv2.matchTemplate(target_gray, template, cv2.TM_CCOEFF_NORMED)
-        # min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-
-        # dX[iX, iY] = max_loc[0] - lm_grid_edges_x[iX]
+        dX[iX, iY] = max_loc[0] - lm_grid_edges_x[iX]
         
         # TODO: Limit the search region - but cap for now
         if dX[iX, iY] > 30:
             dX[iX, iY] = 0
 
-        # dY[iX, iY] = max_loc[1] - lm_grid_edges_y[iY]
+        dY[iX, iY] = max_loc[1] - lm_grid_edges_y[iY]
 
         # TODO: Limit the search region - but cap for now
         if dY[iX, iY] > 30:
@@ -119,6 +116,9 @@ for iX in tqdm(range(len(lm_grid_edges_x) - 1), position=0):
         # plt.show()
 
         # print(f"(dx,dy)={dX[iX,iY], dY[iX,iY]}")
+
+
+
 
 # Interpolate the displacement field to the whole image
 interp_dX = RegularGridInterpolator((xx, yy), dX, bounds_error=False, fill_value=None)
@@ -140,10 +140,12 @@ dY_upsampled_float32 = np.float32(dY_upsampled)
 corrected_final = cv2.remap(corrected, X_float32 - dX_upsampled_float32, Y_float32 - dY_upsampled_float32, cv2.INTER_LINEAR)
 
 
-reg_final = np.zeros((target.shape[0], target.shape[1], 3), dtype=np.uint8)
+reg_final = np.zeros((target_gray.shape[0], target_gray.shape[1], 3), dtype=np.uint8)
 reg_final[..., 0] = target_gray
 reg_final[..., 1] = corrected_final
 reg_final[..., 2] = target_gray
+
+plt.imsave('registered.png', reg_final)
 
 plt.imshow(reg_final)
 plt.show()
@@ -156,6 +158,7 @@ plt.show()
 # plt.subplot(1, 2, 2)
 # plt.imshow(template)
 # plt.show()
+
 
 # plt.imshow(template)
 # plt.show()
