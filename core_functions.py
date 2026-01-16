@@ -6,6 +6,7 @@ import numpy as np
 import skimage
 import scipy
 from cv2 import remap, INTER_LINEAR
+from tqdm import tqdm
 
 def match_image_size(imageA, imageB):
     """Returns images cropped to the smallest matching dimensions
@@ -36,7 +37,7 @@ def match_image_size(imageA, imageB):
     
     # Crop the images
     imageA_cropped = imageA[:min_lengths[0],:min_lengths[1],...]
-    imageB_cropped = imageA[:min_lengths[0],:min_lengths[1],...]
+    imageB_cropped = imageB[:min_lengths[0],:min_lengths[1],...]
 
     # print(f"Image A shape (cropped):{imageA_cropped.shape}")
     # print(f"Image B shape (cropped):{imageB_cropped.shape}")
@@ -155,28 +156,36 @@ def faster_xcorrreg(moving, target, debug_plot=False):
 
 def translate_image(moving, shift):
 
-    tform = skimage.transform.SimilarityTransform(translation=(shift[1], shift[0]))
+    tform = skimage.transform.SimilarityTransform(translation=(-shift[1], -shift[0]))
     corrected = skimage.transform.warp(moving, tform)
 
     return corrected
 
 def match_translated_images(moving, target, shift):
+    # note Shift = [y_shift, x_shift] and -ve shift moves up and left
+    print(f"Moving shape (start): {moving.shape}")
 
-    if shift[0] > 0:
-        moving = moving[:(moving.shape[1] - shift[1]), :, ...]
-        target = target[:(target.shape[1] - shift[1]), :, ...]
-    elif shift[0] < 0:
-        moving = moving[shift[1]:, :, ...]
-        target = target[shift[1]:, :, ...]
+    if shift[1] < 0:
+        moving = moving[:, :(moving.shape[1] + shift[1]), ...]
+        target = target[:, :(target.shape[1] + shift[1]), ...]
+        print(f"Moving shape (after shift[0]): {moving.shape}")
+    elif shift[1] > 0:
+        moving = moving[:, shift[1]:, ...]
+        target = target[:, shift[1]:, ...]
     
-    if shift[1] > 0:
-        moving = moving[:, :(moving.shape[0] - shift[0]), ...]
-        target = target[:, :(target.shape[0] - shift[0]), ...]
-    elif shift[1] < 0:
-        moving = moving[:, shift[0]:, ...]
-        target = target[:, shift[0]:, ...]
+    if shift[0] < 0:
+        moving = moving[:(moving.shape[0] + shift[0]), :, ...]
+        target = target[:(target.shape[0] + shift[0]), :, ...]
+    elif shift[0] > 0:
+        moving = moving[shift[0]:, :, ...]
+        target = target[shift[0]:, :, ...]
 
-    assert moving.shape == target.shape
+    try:
+        assert moving.shape == target.shape
+    except:
+        print(f"Final images were not the same shape.")
+        print(f"Moving: {moving.shape} | Target {target.shape}")
+        exit()
 
     return moving, target
 
@@ -244,7 +253,7 @@ def get_fine_shift(moving, target, num_points, window):
     moving = skimage.exposure.match_histograms(moving, target)
     
     col = 0
-    for xc in grid_centers_x:
+    for xc in tqdm(grid_centers_x):
         row = 0
         for yc in grid_centers_y:
             curr_moving = moving[(yc - window_half_size):(yc + window_half_size), (xc - window_half_size):(xc + window_half_size)]

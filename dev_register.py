@@ -4,22 +4,32 @@ from matplotlib import pyplot as plt
 import scipy
 import numpy as np
 import cv2
+import tifffile
 
-target = skimage.io.imread("../data/259270_0_crop.tif")
-moving = skimage.io.imread("../data/261082_0_crop.tif")
+target = skimage.io.imread("../data/259270_0.tif")
+moving = skimage.io.imread("../data/261082_0.tif")
 
 # Match image sizes
-target_cropped, moving_cropped = core_functions.match_image_size(target, moving)
+target, moving = core_functions.match_image_size(target, moving)
+
+# plt.subplot(1, 2, 1)
+# plt.imshow(target)
+# plt.subplot(1, 2, 2)
+# plt.imshow(moving)
+# plt.show()
+# exit()
 
 # Perform a coarse alignment
-shift = core_functions.get_shift(moving, target)
+shift = core_functions.get_shift(target, moving)
 
 corrected = core_functions.translate_image(moving, shift)
 crop_moving, crop_target = core_functions.match_translated_images(corrected, target, shift)
 
-# merged = core_functions.merge_images(crop_target, crop_moving)
+merged = core_functions.merge_images(crop_target, crop_moving)
 # plt.imshow(merged)
 # plt.show()
+# exit()
+
 
 # # For development, crop the resulting image further for speed of testing
 # crop_moving = crop_moving[1500:3000, 1500:3000, :]
@@ -30,13 +40,13 @@ crop_moving, crop_target = core_functions.match_translated_images(corrected, tar
 # plt.show()
 
 # Perform fine-tuned alignments
-dX, dY, dX_c, dY_c = core_functions.get_fine_shift(crop_moving, crop_target, 10, 300)
+dX, dY, dX_c, dY_c = core_functions.get_fine_shift(crop_moving, crop_target, 60, 400)
 
 # Might want to apply some kind of smoothing filter
 
 # Interpolate the displacements to the whole image
-interp_dX = scipy.interpolate.RegularGridInterpolator((dX_c, dY_c), dX.T, bounds_error=False, fill_value=0)
-interp_dY = scipy.interpolate.RegularGridInterpolator((dX_c, dY_c), dY.T, bounds_error=False, fill_value=0)
+interp_dX = scipy.interpolate.RegularGridInterpolator((dX_c, dY_c), dX.T, bounds_error=False, fill_value=None)
+interp_dY = scipy.interpolate.RegularGridInterpolator((dX_c, dY_c), dY.T, bounds_error=False, fill_value=None)
 
 # Generate image coordinates
 iX = np.arange(0, crop_moving.shape[1])
@@ -65,14 +75,52 @@ dY_upsampled = interp_dY((iXX, iYY))
 
 corrected_final = core_functions.remap_image(crop_moving, iXX, iYY, dX_upsampled, dY_upsampled)
 
-merged = core_functions.merge_images(crop_target, skimage.util.img_as_float(corrected_final))
+corrected_final = skimage.util.img_as_float(corrected_final)
+crop_target = skimage.util.img_as_float(crop_target)
+
+merged = core_functions.merge_images(crop_target, corrected_final)
 merged_original = core_functions.merge_images(crop_target, crop_moving)
 
-plt.subplot(1, 2, 1)
-plt.imshow(merged_original)
-plt.subplot(1, 2, 2)
-plt.imshow(merged)
-plt.show()
+# print(corrected_final.dtype)
+# print(crop_target.dtype)
+
+# plt.subplot(1, 2, 1)
+# plt.imshow(merged_original)
+# plt.subplot(1, 2, 2)
+# plt.imshow(merged)
+# plt.show()
+
+# Generate merged image
+alpha = 0.5
+
+composite = np.zeros(corrected_final.shape, dtype=corrected_final.dtype)
+for iC in range(3):
+    composite[:, :, iC] = alpha * corrected_final[:, :, iC] + (1 - alpha) * crop_target[:, :, iC]
+
+# plt.imshow(composite)
+# plt.show()
+
+# Save output images
+tifffile.imwrite("../processed/merged_crop.tiff", composite, compression="lzw")
+
+# skimage.io.imsave("../processed/merged_full_60x60.png", skimage.util.img_as_ubyte(composite))
+
+
+# composite_original = np.zeros(target.shape, dtype=target.dtype)
+# for iC in range(3):
+#     composite_original[:, :, iC] = alpha * moving[:, :, iC] + (1 - alpha) * target[:, :, iC]
+
+# skimage.io.imsave("../processed/merged_crop_noreg.png", skimage.util.img_as_ubyte(composite_original))
+
+# # Make sure these are floats
+# crop_target = skimage.util.img_as_float32(crop_target)
+# crop_moving = skimage.util.img_as_float32(crop_moving)
+
+# composite_onlytranslate = np.zeros(crop_target.shape, dtype=crop_target.dtype)
+# for iC in range(3):
+#     composite_onlytranslate[:, :, iC] = alpha * crop_moving[:, :, iC] + (1 - alpha) * crop_target[:, :, iC]
+
+# skimage.io.imsave("../processed/merged_crop_translateonly.png", skimage.util.img_as_ubyte(composite_onlytranslate))
 
 # Not currently working
 # # Get the target coordinates
