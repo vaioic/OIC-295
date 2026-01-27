@@ -1,97 +1,152 @@
-import os
+import core_functions
 import skimage
-import openslide
-import numpy as np
-from tifffile import TiffWriter
 from matplotlib import pyplot as plt
-from pybioimageutils import visualize
-import slides
+import scipy
+import numpy as np
+import cv2
+import tifffile
 
-# image_A_path = "/primary/projects/moore/vari-core-generated-data/PBC-Aperio Images/259270.svs"
+target = skimage.io.imread("../data/259270_0.tif")
+moving = skimage.io.imread("../data/261082_0.tif")
 
-# image_B_path = "/primary/projects/moore/vari-core-generated-data/PBC-Aperio Images/261082.svs"
+# Match image sizes
+target, moving = core_functions.match_image_size(target, moving)
 
-image_A_path = "/primary/projects/moore/vari-core-generated-data/PBC-Aperio Images/261081.svs"
+# plt.subplot(1, 2, 1)
+# plt.imshow(target)
+# plt.subplot(1, 2, 2)
+# plt.imshow(moving)
+# plt.show()
+# exit()
 
-image_B_path = "/primary/projects/moore/vari-core-generated-data/PBC-Aperio Images/259267.svs"
+# Perform a coarse alignment
+shift = core_functions.get_shift(target, moving)
 
-output_ds_level = 2
-output_filename = 'merged_261081_259267_level2'
+corrected = core_functions.translate_image(moving, shift)
+crop_moving, crop_target = core_functions.match_translated_images(corrected, target, shift)
 
-# ---Begin processing---
-# Create slide objects
-slide_A = openslide.OpenSlide(image_A_path)
-slide_B = openslide.OpenSlide(image_B_path)
-
-# shift = slides.calculate_shift(slide_B, slide_A, ds_level=1)
-shift = (600, -2788)
-num_subifds = slide_A.level_count - 1
-
-output_size = slide_A.level_dimensions[output_ds_level]
-
-sz_tile = 128
-
-pixelsize = float(slide_A.properties[openslide.PROPERTY_NAME_MPP_X])
-
-options = dict(
-    tile=(sz_tile, sz_tile),
-    compression='jpeg',
-    dtype=np.uint8,
-    photometric='rgb',
-    resolutionunit='CENTIMETER',
-)
-
-# For single image
-with TiffWriter(('./export/' + output_filename + '.tif'), bigtiff=True) as tif:
-    metadata = {
-            'PhysicalSizeX': pixelsize,
-            'PhysicalSizeXUnit': 'µm',
-            'PhysicalSizeY': pixelsize,
-            'PhysicalSizeYUnit': 'µm',
-    }
-        
-    tif.write(
-        slides.register_tiled_image(slide_B, slide_A, shift, ds_level=output_ds_level, tile_size=sz_tile),
-        shape=(output_size[1], output_size[0], 3),
-        resolution=(1e4 / pixelsize, 1e4 / pixelsize),
-        metadata=metadata,
-        **options,
-        )
-    
+merged = core_functions.merge_images(crop_target, crop_moving)
+# plt.imshow(merged)
+# plt.show()
+# exit()
 
 
+# # For development, crop the resulting image further for speed of testing
+# crop_moving = crop_moving[1500:3000, 1500:3000, :]
+# crop_target = crop_target[1500:3000, 1500:3000, :]
 
-# with TiffWriter('./export/merged_259270_261082.tif', bigtiff=True) as tif:
-#     metadata = {
-#             'PhysicalSizeX': pixelsize,
-#             'PhysicalSizeXUnit': 'µm',
-#             'PhysicalSizeY': pixelsize,
-#             'PhysicalSizeYUnit': 'µm',
-#             'MapAnnotation': {  # for OMERO
-#                 'Namespace': 'openmicroscopy.org/PyramidResolution',
-#                 '1': '256 256',
-#                 '2': '128 128',
-#              },
-#     }
-        
-#     tif.write(
-#         slides.register_tiled_image(slide_B, slide_A, shift, ds_level=0, tile_size=sz_tile),
-#         shape=(slide_A.dimensions[1], slide_A.dimensions[0], 3),
-#         subifds=num_subifds,
-#         resolution=(1e4 / pixelsize, 1e4 / pixelsize),
-#         metadata=metadata,
-#         **options,
-#         )
-    
-#     for i in range(num_subifds):
-#         subimage_dimension = slide_A.level_dimensions[i + 1]
-#         mag = slide_A.level_downsamples[i + 1]
+# merge = core_functions.merge_images(crop_moving, crop_target)
+# plt.imshow(merge)
+# plt.show()
 
-#         tif.write(
-#                 slides.register_tiled_image(slide_B, slide_A, shift, ds_level=(i + 1), tile_size=sz_tile),
-#                 shape=(subimage_dimension[1], subimage_dimension[0], 3),
-#                 subfiletype=1,
-#                 metadata=metadata,
-#                 resolution=(1e4 / mag / pixelsize, 1e4 / mag / pixelsize),
-#                 **options,
-#         )
+# Perform fine-tuned alignments
+dX, dY, dX_c, dY_c = core_functions.get_fine_shift(crop_moving, crop_target, 60, 400)
+
+# Might want to apply some kind of smoothing filter
+
+# Interpolate the displacements to the whole image
+interp_dX = scipy.interpolate.RegularGridInterpolator((dX_c, dY_c), dX.T, bounds_error=False, fill_value=None)
+interp_dY = scipy.interpolate.RegularGridInterpolator((dX_c, dY_c), dY.T, bounds_error=False, fill_value=None)
+
+# Generate image coordinates
+iX = np.arange(0, crop_moving.shape[1])
+iY = np.arange(0, crop_moving.shape[0])
+
+iXX, iYY = np.meshgrid(iX, iY, indexing='xy')
+
+# Upsample the displacement field
+dX_upsampled = interp_dX((iXX, iYY))
+dY_upsampled = interp_dY((iXX, iYY))
+
+# plt.subplot(2, 2, 1)
+# plt.imshow(dX)
+# plt.colorbar()
+# plt.subplot(2, 2, 2)
+# plt.imshow(dX_upsampled)
+# plt.colorbar()
+
+# plt.subplot(2, 2, 3)
+# plt.imshow(dY)
+# plt.colorbar()
+# plt.subplot(2, 2, 4)
+# plt.imshow(dY_upsampled)
+# plt.colorbar()
+# plt.show()
+
+corrected_final = core_functions.remap_image(crop_moving, iXX, iYY, dX_upsampled, dY_upsampled)
+
+corrected_final = skimage.util.img_as_float(corrected_final)
+crop_target = skimage.util.img_as_float(crop_target)
+
+merged = core_functions.merge_images(crop_target, corrected_final)
+merged_original = core_functions.merge_images(crop_target, crop_moving)
+
+# print(corrected_final.dtype)
+# print(crop_target.dtype)
+
+# plt.subplot(1, 2, 1)
+# plt.imshow(merged_original)
+# plt.subplot(1, 2, 2)
+# plt.imshow(merged)
+# plt.show()
+
+# Generate merged image
+alpha = 0.5
+
+composite = np.zeros(corrected_final.shape, dtype=corrected_final.dtype)
+for iC in range(3):
+    composite[:, :, iC] = alpha * corrected_final[:, :, iC] + (1 - alpha) * crop_target[:, :, iC]
+
+# plt.imshow(composite)
+# plt.show()
+
+# Save output images
+tifffile.imwrite("../processed/merged_crop.tiff", composite, compression="lzw")
+
+# skimage.io.imsave("../processed/merged_full_60x60.png", skimage.util.img_as_ubyte(composite))
+
+
+# composite_original = np.zeros(target.shape, dtype=target.dtype)
+# for iC in range(3):
+#     composite_original[:, :, iC] = alpha * moving[:, :, iC] + (1 - alpha) * target[:, :, iC]
+
+# skimage.io.imsave("../processed/merged_crop_noreg.png", skimage.util.img_as_ubyte(composite_original))
+
+# # Make sure these are floats
+# crop_target = skimage.util.img_as_float32(crop_target)
+# crop_moving = skimage.util.img_as_float32(crop_moving)
+
+# composite_onlytranslate = np.zeros(crop_target.shape, dtype=crop_target.dtype)
+# for iC in range(3):
+#     composite_onlytranslate[:, :, iC] = alpha * crop_moving[:, :, iC] + (1 - alpha) * crop_target[:, :, iC]
+
+# skimage.io.imsave("../processed/merged_crop_translateonly.png", skimage.util.img_as_ubyte(composite_onlytranslate))
+
+# Not currently working
+# # Get the target coordinates
+# target_XX = iXX - (dX_upsampled)
+# target_YY = iYY - (dY_upsampled)
+
+# coords_to_sample = np.array([target_XX, target_YY])
+
+# print(coords_to_sample.shape)
+
+# final_corrected_image = np.zeros(crop_moving.shape, dtype=crop_moving.dtype)
+# for iC in range(moving.shape[2]):
+#      final_corrected_image[:, :, iC] = scipy.ndimage.map_coordinates(crop_moving[:, :, 0], coords_to_sample, 
+#                                           order=3, mode='constant')
+
+# merged_original = core_functions.merge_images(crop_target, crop_moving)
+# merged_corrected = core_functions.merge_images(crop_target, final_corrected_image)
+
+# dX_c_grid, dY_c_grid = np.meshgrid(dX_c, dY_c)
+
+# plt.subplot(1, 2, 1)
+# plt.imshow(merged_original)
+# plt.subplot(1, 2, 2)
+# plt.imshow(merged_corrected)
+# #plt.quiver(dX_c, dY_c, dX, dY)
+# plt.quiver(iXX[::50, ::50], iYY[::50, ::50], dX_upsampled[::50, ::50], dY_upsampled[::50, ::50])
+# # plt.plot(target_XX[::10, ::10], target_YY[::10, ::10], 'rx')
+# # plt.plot(iXX[::10, ::10], iYY[::10, ::10], 'bo')
+# plt.show()
