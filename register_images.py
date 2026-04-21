@@ -6,23 +6,36 @@ import numpy as np
 import cv2
 import tifffile
 
-target = skimage.io.imread("../data/259270_0.tif")
-moving = skimage.io.imread("../data/261082_0.tif")
+target = skimage.io.imread("../data/2026-04-21 Cropped for testing/259591_Ki67.ome.tif")
+moving = skimage.io.imread("../data/2026-04-21 Cropped for testing/259590_H3K9me3.ome.tif")
+
+# Downsample the images to speed up testing
+target = skimage.transform.rescale(target, 0.25, channel_axis=2)
+moving = skimage.transform.rescale(moving, 0.25, channel_axis=2)
+
+plt.imshow(target)
+plt.show()
+plt.close()
 
 # Match image sizes
 target, moving = core_functions.match_image_size(target, moving)
 
-# plt.subplot(1, 2, 1)
-# plt.imshow(target)
-# plt.subplot(1, 2, 2)
-# plt.imshow(moving)
-# plt.show()
-# exit()
-
 # Perform a coarse alignment
 shift = core_functions.get_shift(target, moving)
 
+print(shift)
+
 corrected = core_functions.translate_image(moving, shift)
+
+overlay = core_functions.merge_images(target, corrected)
+
+plt.imshow(overlay)
+plt.show()
+
+exit()
+
+
+
 crop_moving, crop_target = core_functions.match_translated_images(corrected, target, shift)
 
 merged = core_functions.merge_images(crop_target, crop_moving)

@@ -79,7 +79,12 @@ def get_shift(moving, target, downsample_factor=2):
     else:
         downsample_factor = 1
 
+    print(f"Downsampled moving size: {moving.shape}")
+    print(f"Downsampled target size: {target.shape}")
+
     shift = faster_xcorrreg(moving, target)
+
+    print(f"Raw shift: {shift}")
 
     return np.multiply(shift, downsample_factor)
 
@@ -134,22 +139,24 @@ def faster_xcorrreg(moving, target, debug_plot=False):
 
     # Find the location of the maximum correlation
     idx_max = np.argmax(np.abs(phase_xcorr))
+    print(idx_max)
     row, col = np.unravel_index(idx_max, target.shape)
+    print(row, col)
 
     # Need to recalculate the pixel shifts to take into account the fftshift
     H, W = target.shape
     y_shift = row - H // 2
     x_shift = col - W // 2
     
-    # plt.subplot(1, 2, 1)
-    # plt.imshow(moving)
-    # plt.subplot(1, 2, 2)
-    # plt.imshow(target)
-    # plt.show()
+    plt.subplot(1, 2, 1)
+    plt.imshow(moving)
+    plt.subplot(1, 2, 2)
+    plt.imshow(target)
+    plt.show()
 
-    # plt.figure()
-    # plt.imshow(np.abs(phase_xcorr))
-    # plt.show()
+    plt.figure()
+    plt.imshow(np.abs(phase_xcorr))
+    plt.show()
 
     return [int(y_shift), int(x_shift)]
     
