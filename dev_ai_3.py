@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from skimage import io, feature, exposure, transform
 from scipy.interpolate import griddata
+import tifffile
 
 def generate_displacement_field(target_path, moving_path, grid_size=(30, 30), template_size=200, search_radius=100):
     target = io.imread(target_path, as_gray=True)
@@ -92,12 +93,38 @@ def save_color_overlay(target_rgb_path, moving_rgb_path, tform, output_path):
     # Warp each color channel independently using the estimated transform
     print("Warping color channels...")
     warped_rgb = transform.warp(moving_rgb, tform, output_shape=target_rgb.shape)
+
+    warped_rgb_uint8 = util.img_as_ubyte(warped_rgb)
+    target_rgb_uint8 = util.img_as_ubyte(target_rgb)
     
-    # 50/50 blend for the final color image
-    blend = (target_rgb.astype(float)/255 * 0.5) + (warped_rgb * 0.5)
-    blend = np.clip(blend, 0, 1)
+    # # 50/50 blend for the final color image
+    # blend = (target_rgb.astype(float)/255 * 0.5) + (warped_rgb * 0.5)
+    # blend = np.clip(blend, 0, 1)
+    combined = np.stack([target_rgb_uint8, warped_rgb_uint8], axis=0)
+
+    print(combined.shape)
     
-    io.imsave(output_path, (blend * 255).astype(np.uint8))
+    h, w = target_rgb.shape[:2]
+    ome_xml = f"""<OME xmlns="http://openmicroscopy.org" 
+    xmlns:xsi="http://w3.org" 
+    xsi:schemaLocation="http://openmicroscopy.org http://openmicroscopy.org/ome.xsd">
+        <Image ID="Image:0" Name="MultiRGB">
+            <Pixels DimensionOrder="XYCZT" ID="Pixels:0" Type="uint8" Interleaved="true"
+                    SizeC="6" SizeT="1" SizeX="{w}" SizeY="{h}" SizeZ="1">
+                <Channel ID="Channel:0:0" Name="Target Image" SamplesPerPixel="3"/>
+                <Channel ID="Channel:0:1" Name="Warped Image" SamplesPerPixel="3"/>
+            </Pixels>
+        </Image>
+    </OME>"""
+
+    # 3. Save with 'rgb' photometric interpretation
+    tifffile.imwrite(
+        'output.ome.tif', 
+        combined, 
+        description=ome_xml, 
+        photometric='rgb',  # This tells readers to treat planes as RGB
+        metadata={'axes': 'CYXS'} # C=2 (Logical Channels), Y, X, S=3 (RGB Samples)
+    )
     print(f"Color blend saved to {output_path}")
 
 
@@ -109,17 +136,17 @@ t_norm = exposure.rescale_intensity(target, out_range=(0, 1))
 w_norm = exposure.rescale_intensity(corrected_img, out_range=(0, 1))
 overlay = np.dstack((t_norm, w_norm, t_norm))
 
-fig, axes = plt.subplots(1, 2, figsize=(20, 10))
-axes[0].imshow(target, cmap='gray', alpha=0.5)
-axes[0].quiver(final_src[:, 0], final_src[:, 1], 
-               final_dst[:, 0] - final_src[:, 0], 
-               final_dst[:, 1] - final_src[:, 1], 
-               color='cyan', angles='xy', scale_units='xy', scale=1, width=0.001)
-axes[0].set_title("Interpolated Displacement Field (No Gaps)")
+# fig, axes = plt.subplots(1, 2, figsize=(20, 10))
+# axes[0].imshow(target, cmap='gray', alpha=0.5)
+# axes[0].quiver(final_src[:, 0], final_src[:, 1], 
+#                final_dst[:, 0] - final_src[:, 0], 
+#                final_dst[:, 1] - final_src[:, 1], 
+#                color='cyan', angles='xy', scale_units='xy', scale=1, width=0.001)
+# axes[0].set_title("Interpolated Displacement Field (No Gaps)")
 
-axes[1].imshow(overlay)
-axes[1].set_title("Final Registration Overlay")
-plt.show()
+# axes[1].imshow(overlay)
+# axes[1].set_title("Final Registration Overlay")
+# # plt.show()
 
 io.imsave('overlay_v3_smaller.png', (overlay * 255).astype(np.uint8))
 
