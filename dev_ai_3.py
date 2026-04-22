@@ -124,4 +124,4 @@ plt.show()
 io.imsave('overlay_v3_smaller.png', (overlay * 255).astype(np.uint8))
 
 # 2. Create and save the Color overlay (using the original files)
-save_color_overlay(TARGET_FILE, MOVING_FILE, tform, 'final_color_registration_v3_smaller.png')
+save_color_overlay(TARGET_FILE, MOVING_FILE, tform, 'final_color_registration_v3_smaller.png') 
