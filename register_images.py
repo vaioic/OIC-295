@@ -34,8 +34,6 @@ plt.show()
 
 exit()
 
-
-
 crop_moving, crop_target = core_functions.match_translated_images(corrected, target, shift)
 
 merged = core_functions.merge_images(crop_target, crop_moving)

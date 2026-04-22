@@ -5,115 +5,141 @@ import scipy
 import numpy as np
 import cv2
 import tifffile
+from scipy.signal.windows import hann
 
-# target = skimage.io.imread("../data/2026-04-21 Cropped for testing/259591_Ki67.ome.tif")
-# moving = skimage.io.imread("../data/2026-04-21 Cropped for testing/259590_H3K9me3.ome.tif")
+def apply_window(image):
+    win_2d = np.outer(hann(image.shape[0]), hann(image.shape[1]))
+    return image * win_2d
 
-# # Downsample the images to speed up testing
-# target = skimage.transform.rescale(target, 0.25, channel_axis=2)
-# moving = skimage.transform.rescale(moving, 0.25, channel_axis=2)
-
-# skimage.io.imsave("target_ds.tiff", target)
-# skimage.io.imsave("moving_ds.tiff", moving)
 
 target = skimage.io.imread("target_ds.tiff")
 moving = skimage.io.imread("moving_ds.tiff")
 
-# plt.imshow(target)
-# plt.show()
+target, moving = core_functions.match_image_size(target, moving)
 
+# Convert to just blue
 target_hed = skimage.color.rgb2hed(target)
 moving_hed = skimage.color.rgb2hed(moving)
 
-patch = moving_hed[1370:1870, 1370:1870, 0]
+# Renormalize the blue stain to show the tissue shape
+target_h_norm = target_hed[:, :, 0].copy()
 
-# plt.imshow(patch)
+h_min = np.percentile(target_h_norm, 25)
+h_max = np.percentile(target_h_norm, 50)
+
+target_h_norm = (target_h_norm - h_min) / (h_max - h_min)
+target_h_norm = np.clip(target_h_norm, 0, 1)
+
+# Renormalize the blue stain to show the tissue shape
+moving_h_norm = moving_hed[:, :, 0].copy()
+
+h_min = np.percentile(moving_h_norm, 25)
+h_max = np.percentile(moving_h_norm, 50)
+
+moving_h_norm = (moving_h_norm - h_min) / (h_max - h_min)
+moving_h_norm = np.clip(moving_h_norm, 0, 1)
+
+# plt.imshow(moving_h_norm)
+# plt.show()
+
+# Perform a coarse alignment
+
+# shift, error, diffphase = skimage.registration.phase_cross_correlation(target_h_norm, moving_h_norm, upsample_factor=1)
+# print(shift)
+
+# corrected = core_functions.translate_image(moving, shift)
+
+# overlay = core_functions.merge_images(target, corrected)
+
+# plt.imshow(overlay)
 # plt.show()
 
 # exit()
 
-image = target_hed[:, :, 0]
 
-result = skimage.feature.match_template(image, patch)
-ij = np.unravel_index(np.argmax(result), result.shape)
-x, y = ij[::-1]
+# shift = core_functions.get_shift(apply_window(target_h_norm), apply_window(moving_h_norm), downsample_factor=None)
 
-fig = plt.figure(figsize=(8, 3))
-ax1 = plt.subplot(1, 3, 1)
-ax2 = plt.subplot(1, 3, 2)
-ax3 = plt.subplot(1, 3, 3, sharex=ax2, sharey=ax2)
+# print(shift)
 
-ax1.imshow(patch, cmap=plt.cm.gray)
-ax1.set_axis_off()
-ax1.set_title('template')
+# corrected = core_functions.translate_image(moving_h_norm, shift)
 
-ax2.imshow(image, cmap=plt.cm.gray)
-ax2.set_axis_off()
-ax2.set_title('image')
-# highlight matched region
-hcoin, wcoin = patch.shape
-rect = plt.Rectangle((x, y), wcoin, hcoin, edgecolor='r', facecolor='none')
-ax2.add_patch(rect)
+# overlay = core_functions.merge_images(target_h_norm, corrected)
 
-ax3.imshow(result)
-ax3.set_axis_off()
-ax3.set_title('`match_template`\nresult')
-# highlight matched region
-ax3.autoscale(False)
-ax3.plot(x, y, 'o', markeredgecolor='r', markerfacecolor='none', markersize=10)
-
-plt.show()
-
-print(x, y)
-
-
-# # Create an RGB image for each of the stains
-# null = np.zeros_like(ihc_hed[:, :, 0])
-# ihc_h = skimage.color.hed2rgb(np.stack((ihc_hed[:, :, 0], null, null), axis=-1))
-# ihc_e = skimage.color.hed2rgb(np.stack((null, ihc_hed[:, :, 1], null), axis=-1))
-# ihc_d = skimage.color.hed2rgb(np.stack((null, null, ihc_hed[:, :, 2]), axis=-1))
-
-# # Display
-# fig, axes = plt.subplots(2, 2, figsize=(7, 6), sharex=True, sharey=True)
-# ax = axes.ravel()
-
-# ax[0].imshow(target)
-# ax[0].set_title("Original image")
-
-# ax[1].imshow(ihc_h)
-# ax[1].set_title("Hematoxylin")
-
-# ax[2].imshow(ihc_e)
-# ax[2].set_title("Eosin")  # Note that there is no Eosin stain in this image
-
-# ax[3].imshow(ihc_d)
-# ax[3].set_title("DAB")
-
-# for a in ax.ravel():
-#     a.axis('off')
-
-# fig.tight_layout()
-
+# plt.imshow(overlay)
 # plt.show()
 
-# Make a mask of the blue stain
-# fig, ax = skimage.filters.try_all_threshold(ihc_hed[:, :, 0], figsize=(10,8), verbose=True)
+# exit()
+
+
+# 2. Pre-process: Normalize and Blur
+# This removes the "cell-level" noise and focuses on tissue architecture
+t_smooth = skimage.filters.gaussian(skimage.exposure.rescale_intensity(target), sigma=3)
+m_smooth = skimage.filters.gaussian(skimage.exposure.rescale_intensity(moving), sigma=3)
+
+# 3. Create Edge Maps (Sobel)
+# This is the secret sauce for histology—it makes staining differences irrelevant
+t_edges = skimage.filters.sobel(t_smooth)
+m_edges = skimage.filters.sobel(m_smooth)
+
+dX, dY, dX_c, dY_c = core_functions.get_fine_shift(m_edges, t_edges, 15, 200, debug_plot=True)
+
+# Might want to apply some kind of smoothing filter
+
+# Interpolate the displacements to the whole image
+interp_dX = scipy.interpolate.RegularGridInterpolator((dX_c, dY_c), dX.T, bounds_error=False, fill_value=None)
+interp_dY = scipy.interpolate.RegularGridInterpolator((dX_c, dY_c), dY.T, bounds_error=False, fill_value=None)
+
+# Generate image coordinates
+iX = np.arange(0, moving.shape[1])
+iY = np.arange(0, moving.shape[0])
+
+iXX, iYY = np.meshgrid(iX, iY, indexing='xy')
+
+# Upsample the displacement field
+dX_upsampled = interp_dX((iXX, iYY))
+dY_upsampled = interp_dY((iXX, iYY))
+
+# plt.subplot(2, 2, 1)
+# plt.imshow(dX)
+# plt.colorbar()
+# plt.subplot(2, 2, 2)
+# plt.imshow(dX_upsampled)
+# plt.colorbar()
+
+# plt.subplot(2, 2, 3)
+# plt.imshow(dY)
+# plt.colorbar()
+# plt.subplot(2, 2, 4)
+# plt.imshow(dY_upsampled)
+# plt.colorbar()
 # plt.show()
 
-# threshold = skimage.filters.threshold_minimum(target_hed[:, :, 0])
-# mask_target = target_hed[:, :, 0] > threshold
+corrected_final = core_functions.remap_image(moving, iXX, iYY, dX_upsampled, dY_upsampled)
 
-# threshold2 = skimage.filters.threshold_minimum(moving_hed[:, :, 0])
-# mask_moving = moving_hed[:, :, 0] > threshold
+corrected_final = skimage.util.img_as_float(corrected_final)
+crop_target = skimage.util.img_as_float(target)
 
-# # Try to register the masks
+merged = core_functions.merge_images(crop_target, corrected_final)
+merged_original = core_functions.merge_images(crop_target, moving)
 
-# mask_target, mask_moving = core_functions.match_image_size(mask_target, mask_moving)
+# print(corrected_final.dtype)
+# print(crop_target.dtype)
 
-# shift, _, _ = skimage.registration.phase_cross_correlation(mask_target, mask_moving)
-
-# plt.imshow(mask_moving)
+# plt.subplot(1, 2, 1)
+# plt.imshow(merged_original)
+# plt.subplot(1, 2, 2)
+# plt.imshow(merged)
 # plt.show()
 
+# Generate merged image
+alpha = 0.5
 
+composite = np.zeros(corrected_final.shape, dtype=corrected_final.dtype)
+for iC in range(3):
+    composite[:, :, iC] = alpha * corrected_final[:, :, iC] + (1 - alpha) * crop_target[:, :, iC]
 
+# plt.imshow(composite)
+# plt.show()
+
+# Save output images
+tifffile.imwrite("../processed/merged_crop.tiff", composite, compression="lzw")

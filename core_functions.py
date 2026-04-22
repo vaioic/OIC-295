@@ -130,36 +130,39 @@ def faster_xcorrreg(moving, target, debug_plot=False):
     target = pyfftw.byte_align(target, n = 16)
 
     xcorr = pyfftw.interfaces.numpy_fft.fft2(moving) * np.conjugate(pyfftw.interfaces.numpy_fft.fft2(target))
-    phase_xcorr = pyfftw.interfaces.numpy_fft.ifft2(xcorr / np.abs(xcorr))    
-    phase_xcorr = pyfftw.interfaces.numpy_fft.fftshift(phase_xcorr)
 
-    if debug_plot:
-        plt.imshow(np.abs(phase_xcorr))
-        plt.show()
+    norm = np.abs(xcorr)
+    norm[norm == 0] = 1e-10  # Avoid divide by zero
+    phase_xcorr = pyfftw.interfaces.numpy_fft.ifft2(xcorr / norm)    
+    phase_xcorr = pyfftw.interfaces.numpy_fft.fftshift(phase_xcorr)
 
     # Find the location of the maximum correlation
     idx_max = np.argmax(np.abs(phase_xcorr))
-    print(idx_max)
+    # print(idx_max)
     row, col = np.unravel_index(idx_max, target.shape)
-    print(row, col)
+    # print(row, col)
+
+    if debug_plot:
+        plt.imshow(np.abs(phase_xcorr))
+        plt.plot(col, row, 'rx')
+        plt.show()
 
     # Need to recalculate the pixel shifts to take into account the fftshift
     H, W = target.shape
     y_shift = row - H // 2
     x_shift = col - W // 2
     
-    plt.subplot(1, 2, 1)
-    plt.imshow(moving)
-    plt.subplot(1, 2, 2)
-    plt.imshow(target)
-    plt.show()
+    # plt.subplot(1, 2, 1)
+    # plt.imshow(moving)
+    # plt.subplot(1, 2, 2)
+    # plt.imshow(target)
+    # plt.show()
 
-    plt.figure()
-    plt.imshow(np.abs(phase_xcorr))
-    plt.show()
+    # plt.figure()
+    # plt.imshow(np.abs(phase_xcorr))
+    # plt.show()
 
-    return [int(y_shift), int(x_shift)]
-    
+    return [-int(y_shift), -int(x_shift)]
 
 def translate_image(moving, shift):
 
@@ -231,7 +234,8 @@ def merge_images(imageA, imageB):
 
 def generate_grid_centers(image, num_points, offset=(50,50)):
 
-    height, width, _ = image.shape
+    height = image.shape[0]
+    width = image.shape[1]
 
     if isinstance(num_points, int):
         num_rows = num_points
@@ -244,7 +248,7 @@ def generate_grid_centers(image, num_points, offset=(50,50)):
 
     return grid_centers_x, grid_centers_y
 
-def get_fine_shift(moving, target, num_points, window):
+def get_fine_shift(moving, target, num_points, window, debug_plot=False):
 
     grid_centers_x, grid_centers_y = generate_grid_centers(moving, num_points, offset=(window/2, window/2))
 
@@ -253,10 +257,13 @@ def get_fine_shift(moving, target, num_points, window):
 
     window_half_size = int(window/2)
 
-    moving = skimage.color.rgb2gray(moving)
-    target = skimage.color.rgb2gray(target)
+    if len(moving.shape) == 3:
+        moving = skimage.color.rgb2gray(moving)
+    
+    if len(target.shape) == 3:
+        target = skimage.color.rgb2gray(target)
 
-    # Match intensities by histogram to see if it generates better fits
+    # # Match intensities by histogram to see if it generates better fits
     moving = skimage.exposure.match_histograms(moving, target)
     
     col = 0
@@ -266,35 +273,36 @@ def get_fine_shift(moving, target, num_points, window):
             curr_moving = moving[(yc - window_half_size):(yc + window_half_size), (xc - window_half_size):(xc + window_half_size)]
             curr_target = target[(yc - window_half_size):(yc + window_half_size), (xc - window_half_size):(xc + window_half_size)]
 
-            # plt.subplot(1, 2, 1)
-            # plt.imshow(curr_moving)
-            # plt.subplot(1, 2, 2)
-            # plt.imshow(curr_target)
-            # plt.show()
-
             shift = faster_xcorrreg(curr_moving, curr_target)
 
-            # print(shift)
-            if abs(shift[0]) > 12:
-                shift[0] = 0
-            if abs(shift[1]) > 12:
-                shift[1] = 0
-
-
+            # # print(shift)
+            # if abs(shift[0]) > 12:
+            #     shift[0] = 0
+            # if abs(shift[1]) > 12:
+            #     shift[1] = 0
             displacement_X[row, col] = shift[1]
             displacement_Y[row, col] = shift[0]
             
             row += 1
 
-            # # Test
-            # if abs(shift[0]) > 5 or abs(shift[1]) > 5:
-            #     print(f"{(row, col)} = {(shift[1], shift[0])}")
-            #     corrected = translate_image(curr_moving, shift)
-            #     # crop_moving, crop_target = match_translated_images(corrected, curr_target, shift)
+            if debug_plot:
+                # Make plots to help debug if needed                
+                corrected = translate_image(curr_moving, shift)
+                
+                merged_original = merge_images(curr_target, curr_moving)
+                merged_original = skimage.exposure.rescale_intensity(merged_original, out_range=(0.0, 1.0))
 
-            #     merged = merge_images(curr_target, corrected)
-            #     plt.imshow(merged)
-            #     plt.show()
+                merged = merge_images(curr_target, corrected)
+                merged = skimage.exposure.rescale_intensity(merged, out_range=(0.0, 1.0))
+                plt.subplot(1, 2, 1)
+                plt.imshow(merged_original)
+                plt.title('Original')
+
+                plt.subplot(1, 2, 2)
+                plt.imshow(merged)
+                plt.title(f'Merged (shift={shift}')
+                plt.show()
+                plt.close('all')
         col += 1
 
     return displacement_X, displacement_Y, grid_centers_x, grid_centers_y
@@ -373,3 +381,4 @@ def faster_template_match(template, target, target_istransformed=False):
     row, col = unravel_index(idx_max, target.shape)
 
     return (row, col)
+
