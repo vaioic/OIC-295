@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage import io, feature, exposure, transform
+from skimage import io, feature, exposure, transform, util
 from scipy.interpolate import griddata
 import tifffile
 
@@ -125,6 +125,20 @@ def save_color_overlay(target_rgb_path, moving_rgb_path, tform, output_path):
         photometric='rgb',  # This tells readers to treat planes as RGB
         metadata={'axes': 'CYXS'} # C=2 (Logical Channels), Y, X, S=3 (RGB Samples)
     )
+
+        # 3. Save with 'rgb' photometric interpretation
+    tifffile.imwrite(
+        'target_output.tif', 
+        target_rgb_uint8, 
+        photometric='rgb',  # This tells readers to treat planes as RGB
+    )
+
+    tifffile.imwrite(
+        'corrected_output.tif', 
+        warped_rgb_uint8, 
+        photometric='rgb',  # This tells readers to treat planes as RGB
+    )
+
     print(f"Color blend saved to {output_path}")
 
 
