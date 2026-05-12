@@ -207,8 +207,44 @@ def merge_images(target, moving, alpha=0.5):
 
 
 def process_directory(input_dir, output_dir):
-
+    
     # Expect images to be labeled as <slide_number>_H3K9me3 or Ki67
+
+    if isinstance(input_dir, str):
+        input_dir = Path(input_dir)
+    elif isinstance(input_dir, Path):
+        pass
+    else:
+        raise ValueError(f"Expected input_dir to be a str or Path. Instead it is a {type(input_dir)}.")
+    
+    if isinstance(output_dir, str):
+        output_dir = Path(output_dir)
+    elif isinstance(output_dir, Path):
+        pass
+    else:
+        raise ValueError(f"Expected output_dir to be a str or Path. Instead it is a {type(output_dir)}.")
+    
+    if not output_dir.exists():
+        output_dir.mkdir(parents=True)
+    elif output_dir.is_file():
+        raise ValueError(f"Expected output_dir to be a directory but apparently points to a file.")
+    
+    file_list = list(input_dir.glob("*Ki67*.ome.tif"))
+
+    for file in file_list:
+
+        # Get the corresponding other stain
+        sample_id = (file.name).split("_")[0]
+
+        H3_file = list(input_dir.glob(sample_id + "_H*K9*.ome.tif"))
+
+        if not H3_file:
+            raise FileNotFoundError(f"File was not found")
+        elif len(H3_file) > 1:
+            raise ValueError(f"Expected only one matching file. Instead {len(H3_file)} were found.")
+        
+        process_images(H3_file[0], file, output_dir)
+
     
     pass
 
@@ -243,12 +279,12 @@ def process_images(target_path, moving_path, output_dir):
     target_gray, target_rgb = read_image_and_downsample(target_path)
     moving_gray, moving_rgb = read_image_and_downsample(moving_path)
 
-    src, dst = calculate_displacement_field(target_gray, moving_gray, grid_size=(30, 30), template_size=600, search_window=100)
+    src, dst = calculate_displacement_field(target_gray, moving_gray, grid_size=(30, 30), template_size=200, search_window=100)
 
     # generate_quiver_plot(target_gray, src, dst)
     # exit()
 
-    tform, _, _ = estimate_tform(src, dst, target_gray.shape)
+    tform, _, _ = estimate_tform(src, dst, target_gray.shape, max_distance=200)
 
     # Generate the warped RGB image
     warped_rgb = warp_image(moving_rgb, tform, target_rgb.shape)
@@ -286,11 +322,13 @@ def process_images(target_path, moving_path, output_dir):
     
 if __name__ == "__main__":
 
-    target_path = r"\\pn.vai.org\projects_primary\pospisilik\vari-core-generated-data\POSP_Josef_IHC_SwissRollOverlay\HETS_CR_HFD_LAC\30636_H3K9me3_267436.ome.tif"
+    process_directory(r"../data/HETS_CR_HFD_LAC/", r"../processed/2026-05-12")
 
-    moving_path = r"\\pn.vai.org\projects_primary\pospisilik\vari-core-generated-data\POSP_Josef_IHC_SwissRollOverlay\HETS_CR_HFD_LAC\30636_Ki67_267437.ome.tif"
+    # target_path = r"\\pn.vai.org\projects_primary\pospisilik\vari-core-generated-data\POSP_Josef_IHC_SwissRollOverlay\HETS_CR_HFD_LAC\30636_H3K9me3_267436.ome.tif"
 
-    process_images(target_path, moving_path, "../processed/2026-05-11 Dev Optimizing/30636")
+    # moving_path = r"\\pn.vai.org\projects_primary\pospisilik\vari-core-generated-data\POSP_Josef_IHC_SwissRollOverlay\HETS_CR_HFD_LAC\30636_Ki67_267437.ome.tif"
+
+    # process_images(target_path, moving_path, "../processed/2026-05-11 Dev Optimizing/30636")
 
     # target_path = r"..\data\2026-04-21 Cropped for testing\259591_Ki67.ome.tif"
 
